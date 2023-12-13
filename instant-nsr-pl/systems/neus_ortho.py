@@ -51,16 +51,16 @@ class OrthoNeuSSystem(BaseSystem):
             index = batch['index']
         else:
             if self.config.model.batch_image_sampling:
-                index = torch.randint(0, len(self.dataset.all_images), size=(self.train_num_rays,), device=self.dataset.all_images.device)
+                index = torch.randint(0, len(self.dataset.all_images), size=(self.train_num_rays,))
             else:
-                index = torch.randint(0, len(self.dataset.all_images), size=(1,), device=self.dataset.all_images.device)
+                index = torch.randint(0, len(self.dataset.all_images), size=(1,))
         if stage in ['train']:
             c2w = self.dataset.all_c2w[index]
             x = torch.randint(
-                0, self.dataset.w, size=(self.train_num_rays,), device=self.dataset.all_images.device
+                0, self.dataset.w, size=(self.train_num_rays,)
             )
             y = torch.randint(
-                0, self.dataset.h, size=(self.train_num_rays,), device=self.dataset.all_images.device
+                0, self.dataset.h, size=(self.train_num_rays,)
             )
             if self.dataset.directions.ndim == 3: # (H, W, 3)
                 directions = self.dataset.directions[y, x]
@@ -69,11 +69,13 @@ class OrthoNeuSSystem(BaseSystem):
                 directions = self.dataset.directions[index, y, x]
                 origins = self.dataset.origins[index, y, x]
             rays_o, rays_d = get_ortho_rays(origins, directions, c2w)
-            rgb = self.dataset.all_images[index, y, x].view(-1, self.dataset.all_images.shape[-1]).to(self.rank)
-            normal = self.dataset.all_normals_world[index, y, x].view(-1, self.dataset.all_normals_world.shape[-1]).to(self.rank)
-            fg_mask = self.dataset.all_fg_masks[index, y, x].view(-1).to(self.rank)
-            rgb_mask = self.dataset.all_rgb_masks[index, y, x].view(-1).to(self.rank)
-            view_weights = self.dataset.view_weights[index, y, x].view(-1).to(self.rank)
+            rays_o = rays_o.to(self.device)
+            rays_d = rays_d.to(self.device)
+            rgb = self.dataset.all_images[index, y, x].view(-1, self.dataset.all_images.shape[-1]).to(self.device)
+            normal = self.dataset.all_normals_world[index, y, x].view(-1, self.dataset.all_normals_world.shape[-1]).to(self.device)
+            fg_mask = self.dataset.all_fg_masks[index, y, x].view(-1).to(self.device)
+            rgb_mask = self.dataset.all_rgb_masks[index, y, x].view(-1).to(self.device)
+            view_weights = self.dataset.view_weights[index, y, x].view(-1).to(self.device)
         else:
             c2w = self.dataset.all_c2w[index][0]
             if self.dataset.directions.ndim == 3: # (H, W, 3)
@@ -83,10 +85,12 @@ class OrthoNeuSSystem(BaseSystem):
                 directions = self.dataset.directions[index][0] 
                 origins = self.dataset.origins[index][0]
             rays_o, rays_d = get_ortho_rays(origins, directions, c2w)
-            rgb = self.dataset.all_images[index].view(-1, self.dataset.all_images.shape[-1]).to(self.rank)
-            normal = self.dataset.all_normals_world[index].view(-1, self.dataset.all_images.shape[-1]).to(self.rank)
-            fg_mask = self.dataset.all_fg_masks[index].view(-1).to(self.rank)
-            rgb_mask = self.dataset.all_rgb_masks[index].view(-1).to(self.rank)
+            rays_o = rays_o.to(self.device)
+            rays_d = rays_d.to(self.device)
+            rgb = self.dataset.all_images[index].view(-1, self.dataset.all_images.shape[-1]).to(self.device)
+            normal = self.dataset.all_normals_world[index].view(-1, self.dataset.all_images.shape[-1]).to(self.device)
+            fg_mask = self.dataset.all_fg_masks[index].view(-1).to(self.device)
+            rgb_mask = self.dataset.all_rgb_masks[index].view(-1).to(self.device)
             view_weights = None
 
         cosines = self.cos(rays_d, normal)
@@ -94,26 +98,26 @@ class OrthoNeuSSystem(BaseSystem):
 
         if stage in ['train']:
             if self.config.model.background_color == 'white':
-                self.model.background_color = torch.ones((3,), dtype=torch.float32, device=self.rank)
+                self.model.background_color = torch.ones((3,), dtype=torch.float32).to(self.device)
             elif self.config.model.background_color == 'black':
-                self.model.background_color = torch.zeros((3,), dtype=torch.float32, device=self.rank)
+                self.model.background_color = torch.zeros((3,), dtype=torch.float32).to(self.device)
             elif self.config.model.background_color == 'random':
-                self.model.background_color = torch.rand((3,), dtype=torch.float32, device=self.rank)
+                self.model.background_color = torch.rand((3,), dtype=torch.float32).to(self.device)
             else:
                 raise NotImplementedError
         else:
-            self.model.background_color = torch.ones((3,), dtype=torch.float32, device=self.rank)
+            self.model.background_color = torch.ones((3,), dtype=torch.float32).to(self.device)
         
         if self.dataset.apply_mask:
             rgb = rgb * fg_mask[...,None] + self.model.background_color * (1 - fg_mask[...,None])
         
         batch.update({
-            'rays': rays,
-            'rgb': rgb,
-            'normal': normal,
-            'fg_mask': fg_mask,
-            'rgb_mask': rgb_mask,
-            'cosines': cosines,
+            'rays': rays.to(self.device),
+            'rgb': rgb.to(self.device),
+            'normal': normal.to(self.device),
+            'fg_mask': fg_mask.to(self.device),
+            'rgb_mask': rgb_mask.to(self.device),
+            'cosines': cosines.to(self.device),
             'view_weights': view_weights
         })      
     
@@ -123,7 +127,7 @@ class OrthoNeuSSystem(BaseSystem):
         cosines = batch['cosines']
         fg_mask = batch['fg_mask']
         rgb_mask = batch['rgb_mask']
-        view_weights =  batch['view_weights']
+        view_weights = batch['view_weights']
 
         cosines[cosines > -0.1] = 0
         mask = ((fg_mask > 0) & (cosines < -0.1))
@@ -297,54 +301,51 @@ class OrthoNeuSSystem(BaseSystem):
             self.log('val/psnr', psnr, prog_bar=True, rank_zero_only=True)
         self.export()       
 
-    # def test_step(self, batch, batch_idx):
-    #     out = self(batch)
-    #     psnr = self.criterions['psnr'](out['comp_rgb_full'].to(batch['rgb']), batch['rgb'])
-    #     W, H = self.dataset.img_wh
-    #     self.save_image_grid(f"it{self.global_step}-test/{batch['index'][0].item()}.png", [
-    #         {'type': 'rgb', 'img': batch['rgb'].view(H, W, 3), 'kwargs': {'data_format': 'HWC'}},
-    #         {'type': 'rgb', 'img': out['comp_rgb_full'].view(H, W, 3), 'kwargs': {'data_format': 'HWC'}}
-    #     ] + ([
-    #         {'type': 'rgb', 'img': out['comp_rgb_bg'].view(H, W, 3), 'kwargs': {'data_format': 'HWC'}},
-    #         {'type': 'rgb', 'img': out['comp_rgb'].view(H, W, 3), 'kwargs': {'data_format': 'HWC'}},
-    #     ] if self.config.model.learned_background else []) + [
-    #         {'type': 'grayscale', 'img': out['depth'].view(H, W), 'kwargs': {}},
-    #         {'type': 'rgb', 'img': out['comp_normal'].view(H, W, 3), 'kwargs': {'data_format': 'HWC', 'data_range': (-1, 1)}}
-    #     ])
-    #     return {
-    #         'psnr': psnr,
-    #         'index': batch['index']
-    #     }      
-    
     def test_step(self, batch, batch_idx):
-        pass
-
+        out = self(batch)
+        psnr = self.criterions['psnr'](out['comp_rgb_full'].to(batch['rgb']), batch['rgb'])
+        W, H = self.dataset.img_wh
+        self.save_image_grid(f"it{self.global_step}-test/{batch['index'][0].item()}.png", [
+            {'type': 'rgb', 'img': batch['rgb'].view(H, W, 3), 'kwargs': {'data_format': 'HWC'}},
+            {'type': 'rgb', 'img': out['comp_rgb_full'].view(H, W, 3), 'kwargs': {'data_format': 'HWC'}}
+        ] + ([
+            {'type': 'rgb', 'img': out['comp_rgb_bg'].view(H, W, 3), 'kwargs': {'data_format': 'HWC'}},
+            {'type': 'rgb', 'img': out['comp_rgb'].view(H, W, 3), 'kwargs': {'data_format': 'HWC'}},
+        ] if self.config.model.learned_background else []) + [
+            {'type': 'grayscale', 'img': out['depth'].view(H, W), 'kwargs': {}},
+            {'type': 'rgb', 'img': out['comp_normal'].view(H, W, 3), 'kwargs': {'data_format': 'HWC', 'data_range': (-1, 1)}}
+        ])
+        return {
+            'psnr': psnr,
+            'index': batch['index']
+        }      
+    
     def test_epoch_end(self, out):
         """
         Synchronize devices.
         Generate image sequence using test outputs.
         """
-        # out = self.all_gather(out)
+        out = self.all_gather(out)
         if self.trainer.is_global_zero:
-            # out_set = {}
-            # for step_out in out:
-            #     # DP
-            #     if step_out['index'].ndim == 1:
-            #         out_set[step_out['index'].item()] = {'psnr': step_out['psnr']}
-            #     # DDP
-            #     else:
-            #         for oi, index in enumerate(step_out['index']):
-            #             out_set[index[0].item()] = {'psnr': step_out['psnr'][oi]}
-            # psnr = torch.mean(torch.stack([o['psnr'] for o in out_set.values()]))
-            # self.log('test/psnr', psnr, prog_bar=True, rank_zero_only=True)    
+            out_set = {}
+            for step_out in out:
+                # DP
+                if step_out['index'].ndim == 1:
+                    out_set[step_out['index'].item()] = {'psnr': step_out['psnr']}
+                # DDP
+                else:
+                    for oi, index in enumerate(step_out['index']):
+                        out_set[index[0].item()] = {'psnr': step_out['psnr'][oi]}
+            psnr = torch.mean(torch.stack([o['psnr'] for o in out_set.values()]))
+            self.log('test/psnr', psnr, prog_bar=True, rank_zero_only=True)    
 
-            # self.save_img_sequence(
-            #     f"it{self.global_step}-test",
-            #     f"it{self.global_step}-test",
-            #     '(\d+)\.png',
-            #     save_format='mp4',
-            #     fps=30
-            # )
+            self.save_img_sequence(
+                f"it{self.global_step}-test",
+                f"it{self.global_step}-test",
+                '(\d+)\.png',
+                save_format='mp4',
+                fps=30
+            )
             
             self.export()
     
