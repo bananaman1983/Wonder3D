@@ -89,12 +89,14 @@ def load_a_prediction(root_dir, test_object, imSize, view_types, load_color=Fals
     for idx, view in enumerate(view_types):
         print(os.path.join(root_dir,test_object))
         normal_filepath = os.path.join(root_dir,test_object, 'normals_000_%s.png'%( view))
+        #normal_filepath = root_dir +'/'+ test_object +'/' + 'normals_000_%s.png'%(view)
         # Load key frame
         if load_color:  # use bgr
             image =np.array(PIL.Image.open(normal_filepath.replace("normals", "rgb")).resize(imSize))[:, :, ::-1]
 
         normal = np.array(PIL.Image.open(normal_filepath).resize(imSize))
         mask = normal[:, :, 3]
+        #mask = normal[:, :, 2]
         normal = normal[:, :, :3]
 
         RT = np.loadtxt(os.path.join(cam_pose_dir, '000_%s_RT.txt'%( view)))  # world2cam matrix
