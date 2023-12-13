@@ -1,4 +1,5 @@
 import os
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import torch
 import fire
 import gradio as gr
@@ -227,7 +228,8 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
         VIEWS = ['front', 'front_right', 'right', 'back', 'left', 'front_left']
         cur_dir = os.path.join("./outputs", f"cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}")
 
-        scene = 'scene'+datetime.now().strftime('@%Y%m%d-%H%M%S')
+        #scene = 'scene'+datetime.now().strftime('@%Y%m%d-%H%M%S')
+        scene = 'scene'+datetime.now().strftime('--%Y%m%d-%H%M%S')
         scene_dir = os.path.join(cur_dir, scene)
         normal_dir = os.path.join(scene_dir, "normals")
         masked_colors_dir = os.path.join(scene_dir, "masked_colors")
@@ -262,8 +264,12 @@ def process_3d(mode, data_dir, guidance_scale, crop_size):
 
     cur_dir = os.path.dirname(os.path.abspath(__file__))
 
-    subprocess.run(
+    '''subprocess.run(
         f'cd instant-nsr-pl && python launch.py --config configs/neuralangelo-ortho-wmask.yaml --gpu 0 --train dataset.root_dir=../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ dataset.scene={scene} && cd ..',
+        shell=True,
+    )'''
+    subprocess.run(
+        f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
         shell=True,
     )
     import glob
@@ -271,10 +277,11 @@ def process_3d(mode, data_dir, guidance_scale, crop_size):
 
     # pdb.set_trace()
 
-    obj_files = glob.glob(f'{cur_dir}/instant-nsr-pl/exp/{scene}/*/save/*.obj', recursive=True)
-    print(obj_files)
-    if obj_files:
-        dir = obj_files[0]
+    #obj_files = glob.glob(f'{cur_dir}/instant-nsr-pl/exp/{scene}/*/save/*.obj', recursive=True)
+    glb_files = glob.glob(f'{cur_dir}/NeuS/exp/neus/{scene}/meshes/*.glb', recursive=True)
+    print(glb_files)
+    if glb_files:
+        dir = glb_files[0]
     return dir
 
 
@@ -310,11 +317,12 @@ class TestConfig:
 
 
 def run_demo():
-    from utils.misc import load_config
+    #from utils.misc import load_config
     from omegaconf import OmegaConf
 
     # parse YAML config to OmegaConf
-    cfg = load_config("./configs/mvdiffusion-joint-ortho-6views.yaml")
+    #cfg = load_config("./configs/mvdiffusion-joint-ortho-6views.yaml")
+    cfg = OmegaConf.load("./configs/mvdiffusion-joint-ortho-6views.yaml")
     # print(cfg)
     schema = OmegaConf.structured(TestConfig)
     cfg = OmegaConf.merge(schema, cfg)
@@ -339,7 +347,7 @@ def run_demo():
         gr.Markdown(_DESCRIPTION)
         with gr.Row(variant='panel'):
             with gr.Column(scale=1):
-                input_image = gr.Image(type='pil', image_mode='RGBA', height=320, label='Input image', tool=None)
+                input_image = gr.Image(type='pil', image_mode='RGBA', height=320, label='Input image')#, tool=None)
 
             with gr.Column(scale=1):
                 processed_image = gr.Image(
@@ -347,7 +355,7 @@ def run_demo():
                     label="Processed Image",
                     interactive=False,
                     height=320,
-                    tool=None,
+                    #tool=None,
                     image_mode='RGBA',
                     elem_id="disp_image",
                     visible=True,
@@ -359,7 +367,7 @@ def run_demo():
                                     label="3D Model", height=320, 
                                     # camera_position=[0,0,2.0]
                                     )
-                processed_image_highres = gr.Image(type='pil', image_mode='RGBA', visible=False, tool=None)
+                processed_image_highres = gr.Image(type='pil', image_mode='RGBA', visible=False)#, tool=None)
         with gr.Row(variant='panel'):
             with gr.Column(scale=1):
                 example_folder = os.path.join(os.path.dirname(__file__), "./example_images")
@@ -404,7 +412,7 @@ def run_demo():
                     #     method = gr.Radio(choices=['instant-nsr-pl', 'NeuS'], label='Method (Default: instant-nsr-pl)', value='instant-nsr-pl')
                 # run_btn = gr.Button('Generate Normals and Colors', variant='primary', interactive=True)
                 run_btn = gr.Button('Reconstruct 3D model', variant='primary', interactive=True)
-                gr.Markdown("<span style='color:red'> Reconstruction may cost several minutes. Check results in instant-nsr-pl/exp/scene@{current-time}/ </span>")
+                gr.Markdown("<span style='color:red'> Reconstruction may cost several minutes. Check results in NeuS/exp/neus/scene-{current-time}/ </span>")
         
         with gr.Row():
             view_1 = gr.Image(interactive=False, height=240, show_label=False)
