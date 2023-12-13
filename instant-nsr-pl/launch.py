@@ -1,6 +1,7 @@
 import sys
 import argparse
 import os
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import time
 import logging
 from datetime import datetime
