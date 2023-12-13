@@ -55,7 +55,7 @@ from diffusers.utils import (
     _get_model_file,
     deprecate,
     is_accelerate_available,
-    is_safetensors_available,
+    #is_safetensors_available,
     is_torch_version,
     logging,
 )

@@ -20,7 +20,9 @@ from torch import nn
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.embeddings import ImagePositionalEmbeddings
-from diffusers.utils import BaseOutput, deprecate, maybe_allow_in_graph
+from diffusers.utils import BaseOutput, deprecate
+from diffusers.utils.torch_utils import maybe_allow_in_graph
+#from diffusers.utils import BaseOutput, deprecate, maybe_allow_in_graph
 from diffusers.models.attention import FeedForward, AdaLayerNorm, AdaLayerNormZero, Attention
 from diffusers.models.embeddings import PatchEmbed
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
