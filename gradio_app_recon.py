@@ -179,6 +179,7 @@ def prepare_data(single_image, crop_size):
     return dataset[0]
 
 scene = 'scene'
+realESRGANpath = 'realesrgan-ncnn-vulkan'
 
 def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_size, chk_group=None):
     import pdb
@@ -187,8 +188,11 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
 
     if chk_group is not None:
         write_image = "Write Results" in chk_group
-
+        x4Rescale = "Rescale by x4" in chk_group
+        x2Rescale = "Rescale by x2" in chk_group
     batch = prepare_data(single_image, crop_size)
+
+    #write_image = True
 
     pipeline.set_progress_bar_config(disable=True)
     seed = int(seed)
@@ -244,6 +248,37 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
             rgb_filename = f"rgb_000_{view}.png"
             normal = save_image_to_disk(normal, os.path.join(normal_dir, normal_filename))
             color = save_image_to_disk(color, os.path.join(scene_dir, rgb_filename))
+            
+            print(f'x4: {x4Rescale} /x2: {x2Rescale}' )
+            #x4
+            if x4Rescale:
+                subprocess.run(
+                    f'cd {realESRGANpath} && realesrgan-ncnn-vulkan -i .{os.path.join(normal_dir, normal_filename)} -o .{os.path.join(normal_dir, normal_filename)} -n 4x-ultrasharp && cd..',
+                    shell=True,
+                )
+                subprocess.run(
+                    f'cd {realESRGANpath} && realesrgan-ncnn-vulkan -i .{os.path.join(scene_dir, rgb_filename)} -o .{os.path.join(scene_dir, rgb_filename)} -n 4x-ultrasharp && cd..',
+                    shell=True,
+                )
+                normalBGR =  cv2.imread(os.path.join(normal_dir, normal_filename))
+                normal = cv2.cvtColor(normalBGR, cv2.COLOR_BGR2RGB)
+                colorBGR = cv2.imread(os.path.join(scene_dir, rgb_filename))
+                color = cv2.cvtColor(colorBGR, cv2.COLOR_BGR2RGB)
+            #x2
+            elif x2Rescale:
+                subprocess.run(
+                    f'cd {realESRGANpath} && realesrgan-ncnn-vulkan -i .{os.path.join(normal_dir, normal_filename)} -o .{os.path.join(normal_dir, normal_filename)} -s 2 -n BSRGANx2 && cd..',
+                    shell=True,
+                )
+                subprocess.run(
+                    f'cd {realESRGANpath} && realesrgan-ncnn-vulkan -i .{os.path.join(scene_dir, rgb_filename)} -o .{os.path.join(scene_dir, rgb_filename)} -s 2 -n BSRGANx2 && cd..',
+                    shell=True,
+                )
+                normalBGR =  cv2.imread(os.path.join(normal_dir, normal_filename))
+                normal = cv2.cvtColor(normalBGR, cv2.COLOR_BGR2RGB)
+                colorBGR = cv2.imread(os.path.join(scene_dir, rgb_filename))
+                color = cv2.cvtColor(colorBGR, cv2.COLOR_BGR2RGB)
+                
 
             rm_normal = remove(normal)
             rm_color = remove(color)
@@ -258,9 +293,15 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
     return out
 
 
-def process_3d(mode, data_dir, guidance_scale, crop_size):
+def process_3d(mode, data_dir, guidance_scale, crop_size, chk_group=None):
+    
     dir = None
     global scene
+    
+    if chk_group is not None:        
+        x4Rescale = "Rescale by x4" in chk_group
+        x2Rescale = "Rescale by x2" in chk_group
+        
 
     cur_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -268,10 +309,21 @@ def process_3d(mode, data_dir, guidance_scale, crop_size):
         f'cd instant-nsr-pl && python launch.py --config configs/neuralangelo-ortho-wmask.yaml --gpu 0 --train dataset.root_dir=../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ dataset.scene={scene} && cd ..',
         shell=True,
     )'''
-    subprocess.run(
-        f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
-        shell=True,
-    )
+    if x4Rescale:
+        subprocess.run(
+            f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask_1024.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
+            shell=True,
+        )
+    elif x2Rescale:
+        subprocess.run(
+            f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask_512.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
+            shell=True,
+        )
+    else:
+        subprocess.run(
+            f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
+            shell=True,
+        )
     import glob
     # import pdb
 
@@ -392,8 +444,8 @@ def run_demo():
                             )
                         with gr.Column():
                             output_processing = gr.CheckboxGroup(
-                                ['Write Results'], label='write the results in ./outputs folder', value=['Write Results']
-                            )
+                                ['Write Results', 'Rescale by x2',  'Rescale by x4'], label='write the results in ./outputs folder', value=['Write Results']
+                            )                        
                     with gr.Row():
                         with gr.Column():
                             scale_slider = gr.Slider(1, 5, value=1, step=1, label='Classifier Free Guidance Scale')
@@ -433,10 +485,10 @@ def run_demo():
             fn=partial(preprocess, predictor), inputs=[input_image, input_processing], outputs=[processed_image_highres, processed_image], queue=True
         ).success(
             fn=partial(run_pipeline, pipeline, cfg),
-            inputs=[processed_image_highres, scale_slider, steps_slider, seed, crop_size, output_processing],
+            inputs=[processed_image_highres, scale_slider, steps_slider, seed, crop_size, output_processing ],
             outputs=[view_1, view_2, view_3, view_4, view_5, view_6, normal_1, normal_2, normal_3, normal_4, normal_5, normal_6],
         ).success(
-            process_3d, inputs=[mode, data_dir, scale_slider, crop_size], outputs=[obj_3d]
+            process_3d, inputs=[mode, data_dir, scale_slider, crop_size, output_processing], outputs=[obj_3d]
         )
 
         demo.queue().launch(share=True, max_threads=80)
