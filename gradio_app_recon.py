@@ -181,15 +181,17 @@ def prepare_data(single_image, crop_size):
 scene = 'scene'
 realESRGANpath = 'realesrgan-ncnn-vulkan'
 
-def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_size, chk_group=None):
+def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_size, writeoutput_chk_group=None, scale_chk_group=None):
     import pdb
     global scene
     # pdb.set_trace()
 
-    if chk_group is not None:
-        write_image = "Write Results" in chk_group
-        x4Rescale = "Rescale by x4" in chk_group
-        x2Rescale = "Rescale by x2" in chk_group
+    if writeoutput_chk_group is not None:
+        write_image = "Write Results" in writeoutput_chk_group        
+    if scale_chk_group is not None:
+        x4Rescale = "Rescale by x4" in scale_chk_group
+        x2Rescale = "Rescale by x2" in scale_chk_group
+        
     batch = prepare_data(single_image, crop_size)
 
     #write_image = True
@@ -293,47 +295,75 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
     return out
 
 
-def process_3d(mode, data_dir, guidance_scale, crop_size, chk_group=None):
+def process_3d(mode, data_dir, guidance_scale, crop_size, scale_chk_group=None, recon_chk_group=None):
     
     dir = None
     global scene
     
-    if chk_group is not None:        
-        x4Rescale = "Rescale by x4" in chk_group
-        x2Rescale = "Rescale by x2" in chk_group
+    if scale_chk_group is not None:        
+        x4Rescale = "Rescale by x4" in scale_chk_group
+        x2Rescale = "Rescale by x2" in scale_chk_group
         
+    if recon_chk_group is not None:        
+        instantNSR = "Instant-NSR-PL" in recon_chk_group
+        NeuS= "NeuS" in recon_chk_group
+        no_recon = "No Reconstruction" in recon_chk_group
+        
+    if no_recon:
+        return
 
     cur_dir = os.path.dirname(os.path.abspath(__file__))
+        
+    if instantNSR:
+        if x4Rescale:
+            subprocess.run(
+               f'cd instant-nsr-pl && python launch.py --config configs/neuralangelo-ortho-wmask_1024.yaml --gpu 0 --train dataset.root_dir=../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ dataset.scene={scene} && cd ..',
+                shell=True,
+            )
+        elif x2Rescale:
+            subprocess.run(
+               f'cd instant-nsr-pl && python launch.py --config configs/neuralangelo-ortho-wmask_512.yaml --gpu 0 --train dataset.root_dir=../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ dataset.scene={scene} && cd ..',
+                shell=True,
+            )
+        else:
+            subprocess.run(
+               f'cd instant-nsr-pl && python launch.py --config configs/neuralangelo-ortho-wmask.yaml --gpu 0 --train dataset.root_dir=../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ dataset.scene={scene} && cd ..',
+                shell=True,
+            )
+        import glob                
+        obj_files = glob.glob(f'{cur_dir}/instant-nsr-pl/exp/{scene}/*/save/*.obj', recursive=True)
+        print(obj_files)
+        
+    elif NeuS:
+        if x4Rescale:
+            subprocess.run(
+                f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask_1024.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
+                shell=True,
+            )
+        elif x2Rescale:
+            subprocess.run(
+                f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask_512.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
+                shell=True,
+            )
+        else:
+            subprocess.run(
+                f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
+                shell=True,
+            )
+        import glob
+        # import pdb
 
-    '''subprocess.run(
-        f'cd instant-nsr-pl && python launch.py --config configs/neuralangelo-ortho-wmask.yaml --gpu 0 --train dataset.root_dir=../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ dataset.scene={scene} && cd ..',
-        shell=True,
-    )'''
-    if x4Rescale:
-        subprocess.run(
-            f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask_1024.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
-            shell=True,
-        )
-    elif x2Rescale:
-        subprocess.run(
-            f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask_512.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
-            shell=True,
-        )
-    else:
-        subprocess.run(
-            f'cd NeuS && python exp_runner.py --mode train --conf ./confs/wmask.conf --case {scene} --data_dir ../{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/ && cd ..',
-            shell=True,
-        )
-    import glob
-    # import pdb
+        # pdb.set_trace()
 
-    # pdb.set_trace()
-
-    #obj_files = glob.glob(f'{cur_dir}/instant-nsr-pl/exp/{scene}/*/save/*.obj', recursive=True)
-    glb_files = glob.glob(f'{cur_dir}/NeuS/exp/neus/{scene}/meshes/*.glb', recursive=True)
-    print(glb_files)
+        #obj_files = glob.glob(f'{cur_dir}/instant-nsr-pl/exp/{scene}/*/save/*.obj', recursive=True)
+        glb_files = glob.glob(f'{cur_dir}/NeuS/exp/neus/{scene}/meshes/*.glb', recursive=True)
+        print(glb_files)
+   
+    
     if glb_files:
         dir = glb_files[0]
+    elif obj_files:
+        dir = obj_files[0]
     return dir
 
 
@@ -443,9 +473,17 @@ def run_demo():
                                 info='untick this, if masked image with alpha channel',
                             )
                         with gr.Column():
-                            output_processing = gr.CheckboxGroup(
-                                ['Write Results', 'Rescale by x2',  'Rescale by x4'], label='write the results in ./outputs folder', value=['Write Results']
-                            )                        
+                            output_processing = gr.Radio(
+                                ['Write Results'], label='write the results in ./outputs folder', value=['Write Results']
+                            )
+                        with gr.Column():
+                            scale_processing = gr.Radio(
+                                ['No Rescaling', 'Rescale by x2',  'Rescale by x4'], label='Rescale by x1/x2/x4', value=['No Rescaling']
+                            )  
+                        with gr.Column():
+                            recon_method = gr.Radio(
+                                ['Instant-NSR-PL', 'NeuS', 'No Reconstruction'], label='Reconstruction methods', value=['Instant-NSR-PL']
+                            )    
                     with gr.Row():
                         with gr.Column():
                             scale_slider = gr.Slider(1, 5, value=1, step=1, label='Classifier Free Guidance Scale')
@@ -485,10 +523,10 @@ def run_demo():
             fn=partial(preprocess, predictor), inputs=[input_image, input_processing], outputs=[processed_image_highres, processed_image], queue=True
         ).success(
             fn=partial(run_pipeline, pipeline, cfg),
-            inputs=[processed_image_highres, scale_slider, steps_slider, seed, crop_size, output_processing ],
+            inputs=[processed_image_highres, scale_slider, steps_slider, seed, crop_size, output_processing, scale_processing ],
             outputs=[view_1, view_2, view_3, view_4, view_5, view_6, normal_1, normal_2, normal_3, normal_4, normal_5, normal_6],
         ).success(
-            process_3d, inputs=[mode, data_dir, scale_slider, crop_size, output_processing], outputs=[obj_3d]
+            process_3d, inputs=[mode, data_dir, scale_slider, crop_size, scale_processing, recon_method], outputs=[obj_3d]
         )
 
         demo.queue().launch(share=True, max_threads=80)
