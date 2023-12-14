@@ -300,6 +300,9 @@ def process_3d(mode, data_dir, guidance_scale, crop_size, scale_chk_group=None, 
     dir = None
     global scene
     
+    glb_files = None
+    obj_files = None
+    
     if scale_chk_group is not None:        
         x4Rescale = "Rescale by x4" in scale_chk_group
         x2Rescale = "Rescale by x2" in scale_chk_group
@@ -361,9 +364,9 @@ def process_3d(mode, data_dir, guidance_scale, crop_size, scale_chk_group=None, 
    
     
     if glb_files:
-        dir = glb_files[0]
+        dir = glb_files[-1]
     elif obj_files:
-        dir = obj_files[0]
+        dir = obj_files[-1]
     return dir
 
 
