@@ -334,7 +334,9 @@ def process_3d(mode, data_dir, guidance_scale, crop_size, scale_chk_group=None, 
                 shell=True,
             )
         import glob                
-        obj_files = glob.glob(f'{cur_dir}/instant-nsr-pl/exp/{scene}/*/save/*.obj', recursive=True)
+        obj_files = sorted( glob.glob(f'{cur_dir}/instant-nsr-pl/exp/mesh-ortho-{scene}/*/save/*.obj', recursive=True) , key=os.path.getctime)
+        #print(f'{cur_dir}/instant-nsr-pl/exp/{scene}/')
+        #print( glob.glob(f'{cur_dir}/instant-nsr-pl/exp/mesh-ortho-{scene}/*/save', recursive=True) )
         print(obj_files)
         
     elif NeuS:
@@ -359,7 +361,7 @@ def process_3d(mode, data_dir, guidance_scale, crop_size, scale_chk_group=None, 
         # pdb.set_trace()
 
         #obj_files = glob.glob(f'{cur_dir}/instant-nsr-pl/exp/{scene}/*/save/*.obj', recursive=True)
-        glb_files = glob.glob(f'{cur_dir}/NeuS/exp/neus/{scene}/meshes/*.glb', recursive=True)
+        glb_files = sorted( glob.glob(f'{cur_dir}/NeuS/exp/neus/{scene}/meshes/*.glb', recursive=True) , key=os.path.getctime)
         print(glb_files)
    
     
@@ -476,7 +478,7 @@ def run_demo():
                                 info='untick this, if masked image with alpha channel',
                             )
                         with gr.Column():
-                            output_processing = gr.Radio(
+                            output_processing = gr.CheckboxGroup(
                                 ['Write Results'], label='write the results in ./outputs folder', value=['Write Results']
                             )
                         with gr.Column():
