@@ -1,4 +1,7 @@
 import os
+from pickle import TRUE
+import shutil
+from tkinter import NORMAL, SINGLE
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import torch
 import fire
@@ -53,6 +56,14 @@ def save_image_numpy(ndarr, fp):
     im = Image.fromarray(ndarr)
     im.save(fp)
 
+
+def save_image_numpy_RGB(ndarr, fp):
+    im = Image.fromarray(ndarr)
+    img_w, img_h = im.size
+    new_canvas = Image.new(mode="RGB", size = (img_w,img_h), color = (255, 255, 255))
+    new_canvas.paste(im, mask=im.split()[3]) #paste with alpha mask
+    new_canvas.save(fp)
+    
 
 weight_dtype = torch.float16
 
@@ -187,7 +198,8 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
     # pdb.set_trace()
 
     if writeoutput_chk_group is not None:
-        write_image = "Write Results" in writeoutput_chk_group        
+        write_image = "Write Results" in writeoutput_chk_group    
+        #replace_front = "Replace Frontview" in writeoutput_chk_group    
     if scale_chk_group is not None:
         x4Rescale = "Rescale by x4" in scale_chk_group
         x2Rescale = "Rescale by x2" in scale_chk_group
@@ -229,6 +241,11 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
     bsz = out.shape[0] // 2
     normals_pred = out[:bsz]
     images_pred = out[bsz:]
+    
+    #for rescaled color/normals
+    images_rescaled = []
+    normals_rescaled = []
+
     num_views = 6
     if write_image:
         VIEWS = ['front', 'front_right', 'right', 'back', 'left', 'front_left']
@@ -250,7 +267,18 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
             rgb_filename = f"rgb_000_{view}.png"
             normal = save_image_to_disk(normal, os.path.join(normal_dir, normal_filename))
             color = save_image_to_disk(color, os.path.join(scene_dir, rgb_filename))
-            
+            '''
+            if j==0 and replace_front: #swap front view color image with recentered highres image
+                new_canvas = Image.new(mode="RGB", size = (256,256), color = (255, 255, 255))
+                single_image_resized = single_image.resize( (int(crop_size) , int(crop_size) ), Image.Resampling.LANCZOS  )
+                bg_w, bg_h = new_canvas.size
+                img_w, img_h = single_image_resized.size
+                offset = ((bg_w - img_w) // 2, (bg_h - img_h) // 2)
+                new_canvas.paste(single_image_resized , offset,  mask=single_image_resized.split()[3]) #rescale to crop size x crop size, centered, with alpha mask
+                new_canvas.save(os.path.join(scene_dir, rgb_filename))                
+            else: 
+                color = save_image_to_disk(color, os.path.join(scene_dir, rgb_filename))
+            '''
             print(f'x4: {x4Rescale} /x2: {x2Rescale}' )
             #x4
             if x4Rescale:
@@ -280,20 +308,78 @@ def run_pipeline(pipeline, cfg, single_image, guidance_scale, steps, seed, crop_
                 normal = cv2.cvtColor(normalBGR, cv2.COLOR_BGR2RGB)
                 colorBGR = cv2.imread(os.path.join(scene_dir, rgb_filename))
                 color = cv2.cvtColor(colorBGR, cv2.COLOR_BGR2RGB)
-                
-
+            '''
+            #if frontview is removed and no rescaling is done, numpy image is reloaded into color variable
+            elif j==0 and replace_front: 
+                colorBGR = cv2.imread(os.path.join(scene_dir, rgb_filename))
+                color = cv2.cvtColor(colorBGR, cv2.COLOR_BGR2RGB)            
+            '''
             rm_normal = remove(normal)
             rm_color = remove(color)
 
             save_image_numpy(rm_normal, os.path.join(scene_dir, normal_filename))
             save_image_numpy(rm_color, os.path.join(masked_colors_dir, rgb_filename))
+            
+            images_rescaled.append(rm_color)
+            normals_rescaled.append(rm_normal)
 
-    normals_pred = [save_image(normals_pred[i]) for i in range(bsz)]
-    images_pred = [save_image(images_pred[i]) for i in range(bsz)]
+    #normals_pred = [save_image(normals_pred[i]) for i in range(bsz)]
+    #images_pred = [save_image(images_pred[i]) for i in range(bsz)]
 
-    out = images_pred + normals_pred
+    #images_rescaled and normals_rescaled are already numpy lists. no need for conversion
+    #normals_rescaled = [save_image(normals_rescaled[i]) for i in range(bsz)]
+    #images_rescaled = [save_image(images_rescaled[i]) for i in range(bsz)]
+        
+    #out = images_pred + normals_pred
+    out = images_rescaled + normals_rescaled
     return out
 
+def process_from_2dview(mode, data_dir, guidance_scale, crop_size, scale_chk_group, recon_chk_group, view_1, view_2, view_3, view_4, view_5, view_6, normal_1, normal_2, normal_3, normal_4, normal_5, normal_6):
+    
+    global scene
+    #new scene dir name by the datetime
+    scene = 'scene'+datetime.now().strftime('--%Y%m%d-%H%M%S')
+    VIEWS = ['front', 'front_right', 'right', 'back', 'left', 'front_left']
+    view_list=[view_1, view_2, view_3, view_4, view_5, view_6]
+    normal_list=[normal_1, normal_2, normal_3, normal_4, normal_5, normal_6]
+
+    
+    #copy images to a new scene dir
+    cur_dir = os.path.dirname(os.path.abspath(__file__))
+    root_path=os.path.join(cur_dir, f'{data_dir}/cropsize-{int(crop_size)}-cfg{guidance_scale:.1f}/')
+    scene_path = os.path.join(root_path,scene)
+    maskedcolor_path = os.path.join(scene_path,'masked_colors')
+    normal_dir = os.path.join(scene_path, "normals")
+    
+    #prepare dir tree
+    os.makedirs( scene_path, exist_ok=True )
+    os.makedirs( maskedcolor_path, exist_ok=True )
+    os.makedirs( normal_dir, exist_ok=True )
+    
+    print(f'Created dir:')
+    print(f'{scene_path}')
+    print(f'{maskedcolor_path}')
+    print(f'{normal_dir}')
+    
+    num_views = 6
+    
+    for j in range(num_views):
+        view = VIEWS[j]
+        normal_filename = f"normals_000_{view}.png"
+        rgb_filename = f"rgb_000_{view}.png"
+        #remove BG
+        view_list[j]=remove(view_list[j])
+        normal_list[j]=remove(normal_list[j])
+
+        #copy color/normal images
+        save_image_numpy_RGB(view_list[j], os.path.join(scene_path,rgb_filename) ) #RGB
+        save_image_numpy(view_list[j], os.path.join(maskedcolor_path,rgb_filename) ) #RGBA
+        save_image_numpy_RGB(normal_list[j], os.path.join(normal_dir,normal_filename) ) #RGB
+        save_image_numpy(normal_list[j], os.path.join(scene_path,normal_filename) ) #RGBA
+        
+    #run 3d recon on root path/scene + 2d
+    return process_3d(mode, data_dir, guidance_scale, crop_size, scale_chk_group, recon_chk_group)
+    
 
 def process_3d(mode, data_dir, guidance_scale, crop_size, scale_chk_group=None, recon_chk_group=None):
     
@@ -483,11 +569,11 @@ def run_demo():
                             )
                         with gr.Column():
                             scale_processing = gr.Radio(
-                                ['No Rescaling', 'Rescale by x2',  'Rescale by x4'], label='Rescale by x1/x2/x4', value=['No Rescaling']
+                                ['No Rescaling', 'Rescale by x2',  'Rescale by x4'], label='Rescale by x1/x2/x4', value='No Rescaling'
                             )  
                         with gr.Column():
                             recon_method = gr.Radio(
-                                ['Instant-NSR-PL', 'NeuS', 'No Reconstruction'], label='Reconstruction methods', value=['Instant-NSR-PL']
+                                ['Instant-NSR-PL', 'NeuS', 'No Reconstruction'], label='Reconstruction methods', value='No Reconstruction'
                             )    
                     with gr.Row():
                         with gr.Column():
@@ -510,12 +596,12 @@ def run_demo():
                 gr.Markdown("<span style='color:red'> Reconstruction may cost several minutes. Check results in NeuS/exp/neus/scene-{current-time}/ </span>")
         
         with gr.Row():
-            view_1 = gr.Image(interactive=False, height=240, show_label=False)
-            view_2 = gr.Image(interactive=False, height=240, show_label=False)
-            view_3 = gr.Image(interactive=False, height=240, show_label=False)
-            view_4 = gr.Image(interactive=False, height=240, show_label=False)
-            view_5 = gr.Image(interactive=False, height=240, show_label=False)
-            view_6 = gr.Image(interactive=False, height=240, show_label=False)
+            view_1 = gr.Image(interactive=True, height=240, show_label=False, show_download_button = True)
+            view_2 = gr.Image(interactive=True, height=240, show_label=False, show_download_button = True)
+            view_3 = gr.Image(interactive=True, height=240, show_label=False, show_download_button = True)
+            view_4 = gr.Image(interactive=True, height=240, show_label=False, show_download_button = True)
+            view_5 = gr.Image(interactive=True, height=240, show_label=False, show_download_button = True)
+            view_6 = gr.Image(interactive=True, height=240, show_label=False, show_download_button = True)
         with gr.Row():
             normal_1 = gr.Image(interactive=False, height=240, show_label=False)
             normal_2 = gr.Image(interactive=False, height=240, show_label=False)
@@ -523,6 +609,8 @@ def run_demo():
             normal_4 = gr.Image(interactive=False, height=240, show_label=False)
             normal_5 = gr.Image(interactive=False, height=240, show_label=False)
             normal_6 = gr.Image(interactive=False, height=240, show_label=False)
+        with gr.Row():
+            recon_btn = gr.Button('Reconstruct from 2D views', variant='primary', interactive=True)
 
         run_btn.click(
             fn=partial(preprocess, predictor), inputs=[input_image, input_processing], outputs=[processed_image_highres, processed_image], queue=True
@@ -532,6 +620,10 @@ def run_demo():
             outputs=[view_1, view_2, view_3, view_4, view_5, view_6, normal_1, normal_2, normal_3, normal_4, normal_5, normal_6],
         ).success(
             process_3d, inputs=[mode, data_dir, scale_slider, crop_size, scale_processing, recon_method], outputs=[obj_3d]
+        )
+        
+        recon_btn.click(
+            process_from_2dview, inputs=[mode, data_dir, scale_slider, crop_size, scale_processing, recon_method, view_1, view_2, view_3, view_4, view_5, view_6, normal_1, normal_2, normal_3, normal_4, normal_5, normal_6], outputs=[obj_3d]
         )
 
         demo.queue().launch(share=True, max_threads=80)
